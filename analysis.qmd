@@ -1,0 +1,151 @@
+---
+# title: "Examen analisis"
+format:
+  html:
+    toc: true
+    toc-expand: true
+    toc-depth: 4
+    toc-location: left
+    number-sections: true
+    self-contained: true
+    code-fold: false
+editor_options: 
+  chunk_output_type: console
+execute: 
+  warning: false
+  message: false
+  echo: true
+---
+
+# Project Setup
+
+```{r}
+#| label: setup
+
+source('https://inkaverse.com/setup.r')
+```
+
+# Importación de data
+
+```{r}
+gs <- "https://docs.google.com/spreadsheets/d/12PC-anZ2GaxZcAgDfDe9RK-gPLFbpKEEKeikcUKWMZ8/edit?gid=660841332#gid=660841332" %>% 
+  as_sheets_id()
+
+fb <- gs %>% 
+  range_read(ss = .,sheet = "longitud_corona")
+```
+
+
+#Análisis
+```{r}
+
+# PREPARACION DE LOS DATOS
+
+
+library(tidyverse)
+
+# 0. Convertir las cuatro plantas a formato largo
+fb_largo <- fb %>%
+  pivot_longer(
+    cols = all_of(c("R1", "R2", "R3", "R4")),
+    names_to = "planta",
+    values_to = "longitud"
+  ) %>%
+  mutate(
+    longitud = as.numeric(longitud)
+  )
+
+# Promedio de las cuatro plantas por unidad
+# experimental y bloque
+fb_analisis <- fb_largo %>%
+  group_by(bloque, boro_ml, potasio_ml) %>%
+  summarise(
+    media_longitud = mean(longitud, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    bloque = factor(bloque),
+    tratamiento = interaction(
+      boro_ml, potasio_ml,
+      sep = " Boro-Potasio: "
+    )
+  )
+
+# Revisar la base
+print(fb_analisis)
+nrow(fb_analisis)
+
+
+# 1. MODELO ESTADISTICO
+
+modelo <- aov(
+  media_longitud ~ bloque + tratamiento,
+  data = fb_analisis
+)
+
+summary(modelo)
+
+
+# 2. ANALISIS DE VARIANZA
+
+anova_resultado <- anova(modelo)
+print(anova_resultado)
+
+# Diagnostico de los residuos
+par(mfrow = c(2, 2))
+plot(modelo)
+par(mfrow = c(1, 1))
+
+
+# 3. COMPARACION DE MEDIAS: TUKEY
+
+tukey <- TukeyHSD(
+  modelo,
+  which = "tratamiento",
+  conf.level = 0.95
+)
+
+print(tukey)
+
+# Medias de cada tratamiento
+medias <- fb_analisis %>%
+  group_by(tratamiento) %>%
+  summarise(
+    media = mean(media_longitud),
+    desviacion = sd(media_longitud),
+    n = n(),
+    error_estandar = desviacion / sqrt(n),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(media))
+
+print(medias)
+
+# 4. GRAFICA DE RESULTADOS
+
+ggplot(
+  medias,
+  aes(
+    x = reorder(tratamiento, media),
+    y = media
+  )
+) +
+  geom_col(fill = "steelblue", width = 0.7) +
+  geom_errorbar(
+    aes(
+      ymin = media - error_estandar,
+      ymax = media + error_estandar
+    ),
+    width = 0.2
+  ) +
+  coord_flip() +
+  labs(
+    title = "Longitud promedio de corona por tratamiento",
+    subtitle = "Barras de error: ± error estándar",
+    x = "Tratamiento (boro y potasio)",
+    y = "Longitud promedio de corona"
+  ) +
+  theme_minimal(base_size = 12)
+
+```
+
